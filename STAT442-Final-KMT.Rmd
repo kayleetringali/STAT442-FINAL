@@ -1,0 +1,276 @@
+---
+title: "STAT442 Final: Mental Health in Tech Predictions"
+output: html_document
+author: Kaylee Tringali
+date: "December 13th, 2023"
+---
+### Part I: Preface of Dataset
+##### The following dataset comes from a 2014 survey conducted by Open Sourcing Mental Health (formerly OSMI), aiming to measure tech professional's attitudes towards mental health and the frequency of mental health disorders within the field of technology.
+```{r}
+# load in necessary libraries
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(RColorBrewer)
+library(plotly)
+library(viridis)
+library(ggalt)
+library(ggcorrplot)
+library(reshape2)
+library(relaimpo)
+
+# read in dataset
+mental_health1 <- read.csv("/Users/kayleetringali/STAT442 Final/survey_2014.csv")
+summary(mental_health1)
+```
+
+#### A: preprocessing and cleaning the data
+```{r}
+# right off the bat, the values for age seem inconsistent
+mental_health2 <- mental_health1 %>%
+  filter(Age >= 18 & Age <= 65)
+summary(mental_health2)
+
+# first, check for missing data
+if(sum(is.na(mental_health2)) == 0) {
+  print("There is no missing data in our dataset") # displays count of missing values if NA values are present
+} else {
+  print(paste("There are", sum(is.na(mental_health2)), "missing values in this dataset"))
+}
+
+# next, calculate missing values, unique features, and data types for each column
+frame <- data.frame(
+  Missing_Values = colSums(is.na(mental_health2)),
+  Unique_Features = sapply(mental_health2, function(x) length(unique(x))),
+  Data_Types = sapply(mental_health2, class)
+)
+print(frame)
+
+# view unique values in the 'work_interfere' column
+unique_values <- unique(mental_health2$work_interfere)
+
+print(unique_values)
+```
+#### B: Work interference has lots of missing values
+```{r}
+# define the number of colors needed (assuming 'mental_health2' is your dataset)
+num_colors <- length(unique(mental_health2$work_interfere))
+
+# choose a qualitative color palette from RColorBrewer
+color_palette <- brewer.pal(num_colors, "Set2")
+
+# create a bar plot with the chosen color palette and without a legend
+plot1 <- ggplot(mental_health2, aes(x = work_interfere, fill = work_interfere)) +
+  geom_bar() +
+  scale_fill_manual(values = color_palette, guide = "none") +
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, size = 3.5) +
+  labs(x = "Work Interference", title = "Work Interference Distribution") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# instead of entirely removing observations with NAs in the work interference and column, fill NAs based on most frequent selection
+mental_health3 <- mental_health2 %>%
+  mutate(work_interfere = ifelse(is.na(work_interfere),
+                                 names(sort(table(work_interfere), decreasing = TRUE)[1]),
+                                 work_interfere),
+         self_employed = ifelse(is.na(self_employed),
+                                names(sort(table(self_employed), decreasing = TRUE)[1]),
+                                self_employed))
+
+# create a bar plot for 'work_interfere' column
+plot2 <- ggplot(mental_health3, aes(x = work_interfere, fill = work_interfere)) +
+  geom_bar() +
+  scale_fill_manual(values = color_palette, guide = "none") +
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5, size = 3.5) +
+  labs(x = "Work Interference", title = "Updated Work Interference Distribution") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# display the plots
+plot1
+plot2
+
+
+```
+
+#### C: Condensing 'Gender' into 3 categories for simplicity and viewing the distribution
+```{r}
+# replace various gender responses with standardized categories
+mental_health2$Gender <- gsub("(?i)^(?=.*\\b(?:male|m|maile|malr|msle|make)\\b).*$", "Male", mental_health2$Gender, perl = TRUE)
+mental_health2$Gender <- gsub("(?i)^(?=.*\\b(?:female|f|femake|mal)\\b).*$", "Female", mental_health2$Gender, perl = TRUE)
+mental_health2$Gender[mental_health2$Gender == "Guy (-ish) ^_^"] <- "Other"  # replace exact string value
+
+# remove leading/trailing whitespaces
+mental_health2$Gender <- trimws(mental_health2$Gender)
+
+# convert non-Male/Female entries to 'Other'
+mental_health2$Gender[!(mental_health2$Gender %in% c("Male", "Female"))] <- "Other"
+
+# create a table with counts of each gender category
+gender_counts <- table(mental_health2$Gender)
+
+# convert the table into a data frame
+gender_counts_df <- as.data.frame(gender_counts)
+names(gender_counts_df) <- c("Gender", "Count")
+
+# create a pie chart using plotly
+gender_fig <- plot_ly(gender_counts_df, labels = ~Gender, values = ~Count, type = 'pie', hole = 0.4) %>%
+  layout(title = "Distribution of Gender Categories", x = 0.5, font = list(size = 13, color = "black", family = "Arial", weight = "bold"))
+# show the plot
+gender_fig
+```
+
+```{r}
+
+# create a table with counts of each age range
+age_counts <- table(mental_health2$Age)
+
+# convert the table into a data frame
+age_counts_df <- as.data.frame(age_counts)
+names(age_counts_df) <- c("Age", "Count")
+
+# create a gradient fill based on the count values
+ggplot(age_counts_df, aes(x = Age, y = Count, fill = Count)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "yellow", high = "red") +  # Define the gradient colors
+  labs(title = "Age Distribution", x = "Age", y = "Count") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+# create a kernel density plot segmented by treatment categories
+ggplot(data = mental_health2, aes(x = Age, fill = treatment)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Kernel Density Plot of Age by Treatment", x = "Age", y = "Density") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(name = "Treatment Status",  # Change the legend title
+                    values = c("Yes" = "seagreen", "No" = "purple"))  # modify legend colors
+
+```
+
+```{r}
+
+# filter data where treatment is 'Yes'
+treated_countries <- mental_health2 %>%
+  filter(treatment == 'Yes') %>%
+  group_by(Country) %>%
+  summarise(count = n()) %>%
+  top_n(10, count) %>%
+  arrange(desc(count))
+
+# filter data where treatment is 'No'
+not_treated_countries <- mental_health2 %>%
+  filter(treatment == 'No') %>%
+  group_by(Country) %>%
+  summarise(count = n()) %>%
+  top_n(10, count) %>%
+  arrange(desc(count))
+
+# select top 10 treating and not treating countries
+treated_countries <- head(treated_countries, 10)
+not_treated_countries <- head(not_treated_countries, 10)
+
+# merge the treated and not treated country data
+all_countries <- rbind(
+  transform(treated_countries, treatment_status = "Treating"),
+  transform(not_treated_countries, treatment_status = "Not Treating")
+)
+
+# order the merged dataframe by count
+all_countries <- all_countries[order(all_countries$count),]
+
+# Create a bar plot for treating and not treating countries
+ggplot(all_countries, aes(x = reorder(Country, count), y = count, fill = treatment_status)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.6) +
+  labs(title = "Top 10 Countries - Treating vs. Not Treating Mental Health Issues", 
+       x = "Country", y = "Frequency") +
+  scale_fill_manual(name = "Treatment Status", values = c("Treating" = "seagreen", "Not Treating" = "purple")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+  coord_flip() +
+  theme(
+    legend.title = element_text(face = NULL),
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+
+# create a bar plot of anticipated mental health consequences and treatment
+
+# create custom color palette
+custom_colors <- c("seagreen", "skyblue")
+
+# create the plot with customizations
+ggplot(mental_health2, aes(x = mental_health_consequence, fill = factor(treatment))) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = custom_colors, name = "Treatment") +
+  labs(x = "Mental Health Consequence", y = "Frequency", title = "Frequency of Mental Health Consequence by Treatment") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.title = element_text(face = "bold"),
+    legend.position = "top"
+  )
+```
+
+```{r}
+
+# map categorical variables to numerical values
+mental_health3$family_history_num <- ifelse(mental_health3$family_history == "No", 0, 1)
+mental_health3$treatment_num <- ifelse(mental_health3$treatment == "No", 0, 1)
+mental_health3$self_employed_num <- ifelse(mental_health3$self_employed == "No", 0, 1)
+mental_health3$remote_work_num <- ifelse(mental_health3$remote_work == "No", 0, 1)
+
+# convert categorical variables with multiple categories to numerical
+mental_health3$benefits_num <- ifelse(mental_health2$benefits == "No", 0, ifelse(mental_health2$benefits == "Yes", 1, 2))
+mental_health3$wellness_programs_num <- ifelse(mental_health2$wellness_program == "No", 0, ifelse(mental_health3$wellness_program == "Yes", 1, 2))
+mental_health3$seek_help_num <- ifelse(mental_health3$seek_help == "No", 0, ifelse(mental_health3$seek_help == "Yes", 1, 2))
+mental_health3$anonymity_num <- ifelse(mental_health3$anonymity == "No", 0, ifelse(mental_health3$anonymity == "Yes", 1, 2))
+mental_health3$mental_health_consequence_num <- ifelse(mental_health3$mental_health_consequence == "No", 0, ifelse(mental_health3$mental_health_consequence == "Yes", 1, 2))
+mental_health3$phys_health_consequence_num <- ifelse(mental_health3$phys_health_consequence == "No", 0, ifelse(mental_health3$phys_health_consequence == "Yes", 1, 2))
+
+# select numerical columns for correlation analysis
+numerical_data <- mental_health3[, c("family_history_num", "treatment_num", "self_employed_num", "remote_work_num", 
+                                     "benefits_num", "wellness_programs_num", "seek_help_num", "anonymity_num", 
+                                     "mental_health_consequence_num", "phys_health_consequence_num")]
+
+# create correlation matrix
+correlation_matrix <- cor(numerical_data)
+
+# plot the correlation heatmap with ggcorrplot
+ggcorrplot(correlation_matrix, hc.order = TRUE, 
+           type = "lower", lab = TRUE, lab_size = 3,
+           method = "circle", outline.color = "white",
+           colors = c("blue", "white", "red"), 
+           title = "Correlation Heatmap of Numerical Variables")
+
+# create correlation matrix
+correlation_matrix <- cor(numerical_data)
+
+# melt the correlation matrix into long format
+correlation_melted <- melt(correlation_matrix)
+
+ggplot(correlation_melted, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  geom_text(aes(label = round(value, 2)), size = 3) +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0,
+                       limits = c(-1, 1), na.value = "grey50") +
+  labs(title = "Correlation Heatmap of Numerical Variables") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5, face = "bold"))  # rotate x-axis labels
+```
+
+```{r}
+# quantitative analysis
+
+# convert categorical variables to factors
+mental_health2$treatment <- as.factor(mental_health2$treatment)
+mental_health2$mental_health_consequence <- as.factor(mental_health2$mental_health_consequence)
+
+# convert factors to numeric
+mental_health2$treatment_numeric <- as.numeric(mental_health2$treatment) - 1  # Assuming 'No' = 0 and 'Yes' = 1
+mental_health2$mental_health_consequence_numeric <- as.numeric(mental_health2$mental_health_consequence) - 1  # Assuming 'No' = 0, 'Maybe' = 1, 'Yes' = 2
+
+# fit the linear regression model
+model <- lm(treatment_numeric ~ mental_health_consequence_numeric, data = mental_health2)
+summary(model)
+
+
+```
